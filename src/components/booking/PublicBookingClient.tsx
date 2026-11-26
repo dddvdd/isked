@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Clock, Globe, MapPin } from "lucide-react";
 import type { CustomQuestion } from "@/lib/validations/event-type";
 import { getSupportedTimezones } from "@/lib/timezones";
@@ -25,8 +25,11 @@ interface PublicBookingClientProps {
   description: string | null;
   durationMinutes: number;
   location: string | null;
+  showAdditionalNotes: boolean;
   customQuestions: CustomQuestion[];
   initialYearMonth: string;
+  initialAvailableDates?: string[];
+  initialSlots?: string[];
 }
 
 export function PublicBookingClient({
@@ -40,39 +43,67 @@ export function PublicBookingClient({
   description,
   durationMinutes,
   location,
+  showAdditionalNotes,
   customQuestions,
   initialYearMonth,
+  initialAvailableDates = [],
+  initialSlots = [],
 }: PublicBookingClientProps) {
   const timezones = useMemo(() => getSupportedTimezones(), []);
 
-  const [inviteeTimezone, setInviteeTimezone] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      return (
-        Intl.DateTimeFormat().resolvedOptions().timeZone || hostTimezone || "UTC"
-      );
-    }
-    return hostTimezone || "UTC";
-  });
+  const [inviteeTimezone, setInviteeTimezone] = useState<string>(
+    hostTimezone || "UTC"
+  );
+  const [tzReady, setTzReady] = useState(false);
 
   const [yearMonth, setYearMonth] = useState(initialYearMonth);
-  const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
-  const [loadingMonth, setLoadingMonth] = useState(true);
+  const [availableDates, setAvailableDates] = useState<Set<string>>(
+    () => new Set(initialAvailableDates)
+  );
+  const [loadingMonth, setLoadingMonth] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [slots, setSlots] = useState<string[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string | null>(
+    initialAvailableDates[0] ?? null
+  );
+  const [slots, setSlots] = useState<string[]>(initialSlots);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
   const [selectedSlotIso, setSelectedSlotIso] = useState<string | null>(null);
+  const didSkipInitialSameTzRef = useRef(false);
+
+  // Detect browser timezone once after hydration
+  useEffect(() => {
+    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (detected) {
+      setInviteeTimezone(detected);
+    }
+    setTzReady(true);
+  }, []);
 
   // Record a lightweight page view once on mount
   useEffect(() => {
     recordPageView(eventTypeId).catch(() => {});
   }, [eventTypeId]);
 
-  // Fetch available days whenever month or timezone changes
+  // Fetch available days whenever month or timezone changes (after tz detection)
   useEffect(() => {
+    if (!tzReady) return;
+
+    if (
+      !didSkipInitialSameTzRef.current &&
+      yearMonth === initialYearMonth &&
+      inviteeTimezone === (hostTimezone || "UTC") &&
+      initialAvailableDates.length > 0
+    ) {
+      didSkipInitialSameTzRef.current = true;
+      return;
+    }
+    didSkipInitialSameTzRef.current = true;
+
     let cancelled = false;
     setLoadingMonth(true);
+    setLoadError(null);
 
     fetchAvailableMonthAction({
       username,
@@ -89,6 +120,11 @@ export function PublicBookingClient({
           return dates[0] ?? null;
         });
       })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("Failed to fetch available dates:", err);
+        setLoadError("Could not load available dates. Please try again.");
+      })
       .finally(() => {
         if (!cancelled) setLoadingMonth(false);
       });
@@ -96,10 +132,20 @@ export function PublicBookingClient({
     return () => {
       cancelled = true;
     };
-  }, [username, eventSlug, yearMonth, inviteeTimezone]);
+  }, [
+    tzReady,
+    username,
+    eventSlug,
+    yearMonth,
+    inviteeTimezone,
+    initialYearMonth,
+    hostTimezone,
+    initialAvailableDates.length,
+  ]);
 
-  // Fetch slots when selectedDate or timezone changes
+  // Fetch slots when selectedDate or timezone changes (after tz detection)
   useEffect(() => {
+    if (!tzReady) return;
     if (!selectedDate) {
       setSlots([]);
       return;
@@ -117,6 +163,12 @@ export function PublicBookingClient({
       .then((list) => {
         if (!cancelled) setSlots(list);
       })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error("Failed to fetch available slots:", err);
+          setSlots([]);
+        }
+      })
       .finally(() => {
         if (!cancelled) setLoadingSlots(false);
       });
@@ -124,7 +176,7 @@ export function PublicBookingClient({
     return () => {
       cancelled = true;
     };
-  }, [username, eventSlug, selectedDate, inviteeTimezone]);
+  }, [tzReady, username, eventSlug, selectedDate, inviteeTimezone]);
 
   const initials = hostName
     .split(" ")
@@ -192,6 +244,7 @@ export function PublicBookingClient({
                 slotIso={selectedSlotIso}
                 durationMinutes={durationMinutes}
                 inviteeTimezone={inviteeTimezone}
+                showAdditionalNotes={showAdditionalNotes}
                 customQuestions={customQuestions}
                 onBack={() => setSelectedSlotIso(null)}
               />
@@ -217,6 +270,12 @@ export function PublicBookingClient({
                   </select>
                 </div>
               </div>
+
+              {loadError && (
+                <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  {loadError}
+                </p>
+              )}
 
               <div className="grid gap-6 sm:grid-cols-5">
                 <div className="sm:col-span-3">
@@ -255,4 +314,3 @@ export function PublicBookingClient({
     </div>
   );
 }
-

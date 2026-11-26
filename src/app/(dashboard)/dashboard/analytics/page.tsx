@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import { connection } from "next/server";
 import { TZDate } from "@date-fns/tz";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -13,7 +15,8 @@ import {
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export default async function AnalyticsPage() {
+async function AnalyticsContent() {
+  await connection();
   const user = await requireCurrentUser();
   const tz = isValidTimezone(user.timezone) ? user.timezone : "UTC";
 
@@ -75,7 +78,6 @@ export default async function AnalyticsPage() {
       ? ((cancelledBookings.length / totalBookings) * 100).toFixed(1)
       : "0.0";
 
-  // Popular event types
   const confirmedByEvent = new Map<string, number>();
   for (const b of confirmedBookings) {
     confirmedByEvent.set(
@@ -90,7 +92,6 @@ export default async function AnalyticsPage() {
     views: et._count.pageViews,
   }));
 
-  // Day of week & hour distribution (confirmed bookings in host timezone)
   const dayCounts = [0, 0, 0, 0, 0, 0, 0];
   const hourCounts = Array.from({ length: 24 }, () => 0);
 
@@ -160,3 +161,24 @@ export default async function AnalyticsPage() {
   );
 }
 
+function AnalyticsFallback() {
+  return (
+    <div className="mx-auto max-w-5xl space-y-6">
+      <div className="h-8 w-36 animate-pulse rounded bg-muted" />
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="h-28 animate-pulse rounded-xl border bg-card" />
+        <div className="h-28 animate-pulse rounded-xl border bg-card" />
+        <div className="h-28 animate-pulse rounded-xl border bg-card" />
+      </div>
+      <div className="h-72 animate-pulse rounded-xl border bg-card" />
+    </div>
+  );
+}
+
+export default function AnalyticsPage() {
+  return (
+    <Suspense fallback={<AnalyticsFallback />}>
+      <AnalyticsContent />
+    </Suspense>
+  );
+}

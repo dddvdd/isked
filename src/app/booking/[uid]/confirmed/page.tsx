@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import Link from "next/link";
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { buildGoogleCalendarUrl, generateBookingIcs } from "@/lib/email";
+import { maskEmail } from "@/lib/security";
 import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -23,6 +25,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+
+export const metadata: Metadata = {
+  title: "Booking Confirmed — Isked",
+  robots: { index: false, follow: false },
+};
 
 async function BookingConfirmedContent({
   params,
@@ -44,6 +51,7 @@ async function BookingConfirmedContent({
   }
 
   const hostName = booking.host.name ?? booking.host.username;
+  const maskedInviteeEmail = maskEmail(booking.inviteeEmail);
 
   const formattedDate = (() => {
     try {
@@ -73,7 +81,7 @@ async function BookingConfirmedContent({
   })();
 
   const googleCalUrl = buildGoogleCalendarUrl({
-    title: `${booking.eventType.title} (${hostName} & ${booking.inviteeName})`,
+    title: `${booking.eventType.title} (${hostName})`,
     description: booking.eventType.description,
     location: booking.eventType.location,
     startTime: booking.startTime,
@@ -88,9 +96,7 @@ async function BookingConfirmedContent({
       eventDescription: booking.eventType.description,
       location: booking.eventType.location,
       hostName,
-      hostEmail: booking.host.email,
       inviteeName: booking.inviteeName,
-      inviteeEmail: booking.inviteeEmail,
       inviteeTimezone: booking.inviteeTimezone,
       startTime: booking.startTime,
       endTime: booking.endTime,
@@ -108,7 +114,7 @@ async function BookingConfirmedContent({
         {isCancelled ? (
           <XCircle className="mb-2 h-10 w-10 text-destructive" />
         ) : (
-          <CalendarCheck2 className="mb-2 h-10 w-10 text-emerald-600" />
+          <CalendarCheck2 className="mb-2 h-10 w-10 text-primary" />
         )}
         <CardTitle className="text-2xl">
           {isCancelled ? "This meeting was cancelled" : "You are scheduled"}
@@ -116,12 +122,12 @@ async function BookingConfirmedContent({
         <CardDescription>
           {isCancelled
             ? "This booking is no longer active."
-            : `A calendar invitation has been sent to ${booking.inviteeEmail}.`}
+            : `Confirmation details have been sent to ${maskedInviteeEmail}.`}
         </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-6">
-        <div className="space-y-3 rounded-xl border bg-zinc-50/70 p-4 text-sm dark:bg-zinc-900/50">
+        <div className="space-y-3 rounded-xl border bg-muted/50 p-4 text-sm">
           <div className="flex items-center justify-between">
             <span className="font-semibold text-base">
               {booking.eventType.title}
@@ -133,9 +139,7 @@ async function BookingConfirmedContent({
 
           <div className="flex items-center gap-2 text-muted-foreground">
             <User className="h-4 w-4 shrink-0" />
-            <span>
-              {hostName} &amp; {booking.inviteeName}
-            </span>
+            <span>Host: {hostName}</span>
           </div>
 
           <div className="flex items-center gap-2 text-muted-foreground">
@@ -209,7 +213,7 @@ export default function BookingConfirmedPage({
   params: Promise<{ uid: string }>;
 }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-12 dark:bg-zinc-950">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
       <Suspense
         fallback={
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />

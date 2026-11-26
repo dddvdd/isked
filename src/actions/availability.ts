@@ -19,8 +19,8 @@ const shiftSchema = z
   });
 
 const saveAvailabilitySchema = z.object({
-  timezone: z.string().min(1).refine(isValidTimezone, "Invalid timezone"),
-  shifts: z.array(shiftSchema),
+  timezone: z.string().min(1).max(100).refine(isValidTimezone, "Invalid timezone"),
+  shifts: z.array(shiftSchema).max(50, "Too many availability shifts"),
 });
 
 function hasOverlappingShifts(
@@ -65,31 +65,36 @@ export async function saveWeeklyAvailabilityAction(rawInput: {
     return { ok: false as const, error: overlapError };
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.user.update({
-      where: { id: user.id },
-      data: { timezone: parsed.data.timezone },
-    });
+  try {
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { timezone: parsed.data.timezone },
+      }),
+      prisma.availability.deleteMany({
+        where: { userId: user.id },
+      }),
+      ...(parsed.data.shifts.length > 0
+        ? [
+            prisma.availability.createMany({
+              data: parsed.data.shifts.map((s) => ({
+                userId: user.id,
+                dayOfWeek: s.dayOfWeek,
+                startTime: s.startTime,
+                endTime: s.endTime,
+              })),
+            }),
+          ]
+        : []),
+    ]);
 
-    await tx.availability.deleteMany({
-      where: { userId: user.id },
-    });
-
-    if (parsed.data.shifts.length > 0) {
-      await tx.availability.createMany({
-        data: parsed.data.shifts.map((s) => ({
-          userId: user.id,
-          dayOfWeek: s.dayOfWeek,
-          startTime: s.startTime,
-          endTime: s.endTime,
-        })),
-      });
-    }
-  });
-
-  revalidatePath("/dashboard/availability");
-  revalidatePath("/dashboard");
-  return { ok: true as const };
+    revalidatePath("/dashboard/availability");
+    revalidatePath("/dashboard");
+    return { ok: true as const };
+  } catch (err) {
+    console.error("Failed to save weekly availability:", err);
+    return { ok: false as const, error: "Could not save availability." };
+  }
 }
 
 const overrideInputSchema = z

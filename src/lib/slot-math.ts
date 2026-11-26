@@ -18,6 +18,32 @@ export interface ExistingBookingInput {
   endTime: Date;   // UTC
   bufferBeforeMinutes?: number;
   bufferAfterMinutes?: number;
+  eventTypeId?: string;
+  formResponses?: unknown;
+}
+
+export interface QuotaLocationAllocation {
+  code: string;
+  name: string;
+  slots: number;
+  provinceCode?: string;
+  provinceName?: string;
+  municipalityCode?: string;
+  municipalityName?: string;
+}
+
+export interface SlotQuotaInput {
+  scope: "NONE" | "PER_EVENT" | "PER_DAY";
+  slotLimit: number | null;
+  locationLevel?: "NONE" | "PROVINCE" | "MUNICIPALITY" | "BARANGAY";
+  allocations?: QuotaLocationAllocation[];
+}
+
+export interface BookingWindowInput {
+  type: "UNLIMITED" | "DATE_RANGE" | "SPECIFIC_DATES";
+  startDate?: string | null; // "YYYY-MM-DD" in host timezone (inclusive)
+  endDate?: string | null;   // "YYYY-MM-DD" in host timezone (inclusive)
+  allowedDates?: string[];   // Array<"YYYY-MM-DD"> in host timezone
 }
 
 export interface ComputeSlotsOptions {
@@ -31,6 +57,9 @@ export interface ComputeSlotsOptions {
   availabilities: AvailabilityRuleInput[];
   dateOverrides: DateOverrideInput[];
   bookings: ExistingBookingInput[];
+  bookingWindow?: BookingWindowInput;
+  slotQuota?: SlotQuotaInput;
+  quotaBookings?: ExistingBookingInput[]; // Confirmed bookings for THIS eventType (for PER_EVENT / PER_DAY)
   now?: Date;
 }
 
@@ -56,6 +85,121 @@ function parseYmd(dateStr: string): { year: number; month: number; day: number }
 function parseHm(timeStr: string): { hour: number; minute: number } {
   const [h, m] = timeStr.split(":").map(Number);
   return { hour: h, minute: m };
+}
+
+export function formatUtcToHostYmd(utcMs: number, hostTimezone: string): string {
+  const safeTz = checkTimezone(hostTimezone) ? hostTimezone : "UTC";
+  const z = new TZDate(utcMs, safeTz);
+  const y = z.getFullYear();
+  const m = String(z.getMonth() + 1).padStart(2, "0");
+  const d = String(z.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export function extractBookingAddressCodes(formResponses: unknown): {
+  provinceCode: string | null;
+  municipalityCode: string | null;
+  barangayCode: string | null;
+} {
+  if (!formResponses || typeof formResponses !== "object") {
+    return { provinceCode: null, municipalityCode: null, barangayCode: null };
+  }
+  const obj = formResponses as Record<string, unknown>;
+  if (!obj.address || typeof obj.address !== "object") {
+    return { provinceCode: null, municipalityCode: null, barangayCode: null };
+  }
+  const addr = obj.address as Record<string, unknown>;
+  return {
+    provinceCode:
+      typeof addr.provinceCode === "string" ? addr.provinceCode : null,
+    municipalityCode:
+      typeof addr.municipalityCode === "string" ? addr.municipalityCode : null,
+    barangayCode:
+      typeof addr.barangayCode === "string" ? addr.barangayCode : null,
+  };
+}
+
+export function computeQuotaRemaining(params: {
+  slotQuota: SlotQuotaInput;
+  scopedBookings: Pick<ExistingBookingInput, "formResponses">[];
+}): {
+  remainingTotal: number;
+  remainingByCode: Map<string, number>;
+} {
+  const { slotQuota, scopedBookings } = params;
+  const totalCap = Math.max(0, slotQuota.slotLimit ?? 0);
+  const level = slotQuota.locationLevel ?? "NONE";
+  const allocations = (slotQuota.allocations ?? []).filter((a) => a.slots > 0);
+
+  const remainingByCode = new Map<string, number>();
+
+  if (level === "NONE") {
+    return {
+      remainingTotal: Math.max(0, totalCap - scopedBookings.length),
+      remainingByCode,
+    };
+  }
+
+  if (allocations.length === 0) {
+    return { remainingTotal: 0, remainingByCode };
+  }
+
+  const usedByCode = new Map<string, number>();
+  for (const b of scopedBookings) {
+    const codes = extractBookingAddressCodes(b.formResponses);
+    const code =
+      level === "PROVINCE"
+        ? codes.provinceCode
+        : level === "MUNICIPALITY"
+          ? codes.municipalityCode
+          : codes.barangayCode;
+    if (code) {
+      usedByCode.set(code, (usedByCode.get(code) ?? 0) + 1);
+    }
+  }
+
+  let sumRemainingAllocations = 0;
+  for (const alloc of allocations) {
+    const used = usedByCode.get(alloc.code) ?? 0;
+    const rem = Math.max(0, alloc.slots - used);
+    remainingByCode.set(alloc.code, rem);
+    sumRemainingAllocations += rem;
+  }
+
+  const overallRemaining = Math.max(
+    0,
+    Math.min(totalCap - scopedBookings.length, sumRemainingAllocations)
+  );
+
+  return {
+    remainingTotal: overallRemaining,
+    remainingByCode,
+  };
+}
+
+export function isHostDateWithinBookingWindow(
+  hostYmd: string,
+  bookingWindow?: BookingWindowInput
+): boolean {
+  if (!bookingWindow || bookingWindow.type === "UNLIMITED") {
+    return true;
+  }
+
+  if (bookingWindow.type === "DATE_RANGE") {
+    if (bookingWindow.startDate && hostYmd < bookingWindow.startDate) {
+      return false;
+    }
+    if (bookingWindow.endDate && hostYmd > bookingWindow.endDate) {
+      return false;
+    }
+    return true;
+  }
+
+  if (bookingWindow.type === "SPECIFIC_DATES") {
+    return Boolean(bookingWindow.allowedDates?.includes(hostYmd));
+  }
+
+  return true;
 }
 
 function formatYmdInTz(
@@ -131,7 +275,8 @@ function subtractIntervals(
 
 /**
  * Pure, deterministic slot calculation function supporting arbitrary host/invitee
- * IANA timezones, cross-date timezone offsets, buffers, date overrides, and DST transitions.
+ * IANA timezones, cross-date timezone offsets, buffers, date overrides,
+ * event booking date windows (date range / specific open dates), and DST transitions.
  */
 export function computeAvailableSlots(options: ComputeSlotsOptions): string[] {
   const {
@@ -142,6 +287,9 @@ export function computeAvailableSlots(options: ComputeSlotsOptions): string[] {
     availabilities,
     dateOverrides,
     bookings,
+    bookingWindow,
+    slotQuota,
+    quotaBookings,
     now = new Date(),
   } = options;
 
@@ -155,6 +303,21 @@ export function computeAvailableSlots(options: ComputeSlotsOptions): string[] {
   const inviteeTz = checkTimezone(options.inviteeTimezone)
     ? options.inviteeTimezone
     : hostTz;
+
+  const isGroupQuotaMode =
+    slotQuota !== undefined &&
+    (slotQuota.scope === "PER_EVENT" || slotQuota.scope === "PER_DAY");
+  const eventQuotaBookings = quotaBookings ?? bookings;
+
+  if (isGroupQuotaMode && slotQuota.scope === "PER_EVENT") {
+    const { remainingTotal } = computeQuotaRemaining({
+      slotQuota,
+      scopedBookings: eventQuotaBookings,
+    });
+    if (remainingTotal <= 0) {
+      return [];
+    }
+  }
 
   const stepMinutes =
     options.stepMinutes ?? (durationMinutes <= 15 ? durationMinutes : 15);
@@ -204,6 +367,23 @@ export function computeAvailableSlots(options: ComputeSlotsOptions): string[] {
   const workingIntervals: UtcInterval[] = [];
 
   for (const [hostYmd, dayOfWeek] of hostDatesMap.entries()) {
+    if (!isHostDateWithinBookingWindow(hostYmd, bookingWindow)) {
+      continue;
+    }
+
+    if (isGroupQuotaMode && slotQuota.scope === "PER_DAY") {
+      const dayBookings = eventQuotaBookings.filter(
+        (b) => formatUtcToHostYmd(b.startTime.getTime(), hostTz) === hostYmd
+      );
+      const { remainingTotal } = computeQuotaRemaining({
+        slotQuota,
+        scopedBookings: dayBookings,
+      });
+      if (remainingTotal <= 0) {
+        continue;
+      }
+    }
+
     const override = overridesByDate.get(hostYmd);
 
     if (override) {
@@ -238,20 +418,22 @@ export function computeAvailableSlots(options: ComputeSlotsOptions): string[] {
     return [];
   }
 
-  const blockedIntervals: UtcInterval[] = bookings.map((b) => {
-    const padBeforeMin = Math.max(
-      bufferAfterMinutes,
-      b.bufferBeforeMinutes ?? bufferBeforeMinutes
-    );
-    const padAfterMin = Math.max(
-      bufferBeforeMinutes,
-      b.bufferAfterMinutes ?? bufferAfterMinutes
-    );
-    return {
-      startMs: b.startTime.getTime() - padBeforeMin * 60_000,
-      endMs: b.endTime.getTime() + padAfterMin * 60_000,
-    };
-  });
+  const blockedIntervals: UtcInterval[] = isGroupQuotaMode
+    ? []
+    : bookings.map((b) => {
+        const padBeforeMin = Math.max(
+          bufferAfterMinutes,
+          b.bufferBeforeMinutes ?? bufferBeforeMinutes
+        );
+        const padAfterMin = Math.max(
+          bufferBeforeMinutes,
+          b.bufferAfterMinutes ?? bufferAfterMinutes
+        );
+        return {
+          startMs: b.startTime.getTime() - padBeforeMin * 60_000,
+          endMs: b.endTime.getTime() + padAfterMin * 60_000,
+        };
+      });
 
   const freeIntervals = subtractIntervals(workingIntervals, blockedIntervals);
 
@@ -274,4 +456,3 @@ export function computeAvailableSlots(options: ComputeSlotsOptions): string[] {
 
   return Array.from(slotIsoSet).sort();
 }
-

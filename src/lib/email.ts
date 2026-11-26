@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { createEvent, type DateArray } from "ics";
+import { escapeHtml } from "@/lib/security";
 
 export interface BookingEmailPayload {
   uid: string;
@@ -25,9 +26,13 @@ function toUtcDateArray(d: Date): DateArray {
   ];
 }
 
-export function generateBookingIcs(payload: BookingEmailPayload): string {
+export function generateBookingIcs(
+  payload: Omit<BookingEmailPayload, "hostEmail" | "inviteeEmail"> & {
+    organizerEmail?: string;
+  }
+): string {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  const cancelUrl = `${appUrl}/booking/${payload.uid}/cancel`;
+  const cancelUrl = `${appUrl}/booking/${encodeURIComponent(payload.uid)}/cancel`;
 
   const descriptionLines = [
     payload.eventDescription ?? "",
@@ -37,8 +42,13 @@ export function generateBookingIcs(payload: BookingEmailPayload): string {
     .filter(Boolean)
     .join("\n");
 
+  const safeOrganizerEmail =
+    payload.organizerEmail ??
+    process.env.PUBLIC_ORGANIZER_EMAIL ??
+    "noreply@isked.local";
+
   const { error, value } = createEvent({
-    uid: `${payload.uid}@calclone.local`,
+    uid: `${payload.uid}@isked.local`,
     start: toUtcDateArray(payload.startTime),
     startInputType: "utc",
     startOutputType: "utc",
@@ -47,22 +57,13 @@ export function generateBookingIcs(payload: BookingEmailPayload): string {
     endOutputType: "utc",
     title: `${payload.eventTitle} (${payload.hostName} & ${payload.inviteeName})`,
     description: descriptionLines,
-    location: payload.location ?? "Online Meeting",
+    location: payload.location ?? "Scheduled Appointment",
     status: "CONFIRMED",
     busyStatus: "BUSY",
     organizer: {
       name: payload.hostName,
-      email: payload.hostEmail,
+      email: safeOrganizerEmail,
     },
-    attendees: [
-      {
-        name: payload.inviteeName,
-        email: payload.inviteeEmail,
-        rsvp: true,
-        partstat: "ACCEPTED",
-        role: "REQ-PARTICIPANT",
-      },
-    ],
   });
 
   if (error || !value) {
@@ -97,6 +98,10 @@ export function buildGoogleCalendarUrl(payload: {
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
+function sanitizeEmailSubject(raw: string): string {
+  return raw.replace(/[\r\n]+/g, " ").trim().slice(0, 200);
+}
+
 function formatInTimezone(date: Date, timeZone: string): string {
   try {
     return new Intl.DateTimeFormat("en-US", {
@@ -119,44 +124,75 @@ export async function sendBookingConfirmationEmail(
 
   const resend = new Resend(apiKey);
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-  const cancelUrl = `${appUrl}/booking/${payload.uid}/cancel`;
-  const confirmUrl = `${appUrl}/booking/${payload.uid}/confirmed`;
+  const safeUid = encodeURIComponent(payload.uid);
+  const cancelUrl = `${appUrl}/booking/${safeUid}/cancel`;
+  const confirmUrl = `${appUrl}/booking/${safeUid}/confirmed`;
   const icsContent = generateBookingIcs(payload);
-  const formattedStart = formatInTimezone(
-    payload.startTime,
-    payload.inviteeTimezone
+
+  const safeInviteeName = escapeHtml(payload.inviteeName);
+  const safeInviteeEmail = escapeHtml(payload.inviteeEmail);
+  const safeHostName = escapeHtml(payload.hostName);
+  const safeEventTitle = escapeHtml(payload.eventTitle);
+  const safeLocation = payload.location ? escapeHtml(payload.location) : null;
+  const safeTimezone = escapeHtml(payload.inviteeTimezone);
+  const formattedStart = escapeHtml(
+    formatInTimezone(payload.startTime, payload.inviteeTimezone)
   );
 
   const fromAddress =
-    process.env.RESEND_FROM_EMAIL ?? "CalClone <onboarding@resend.dev>";
+    process.env.RESEND_FROM_EMAIL ?? "Isked <onboarding@resend.dev>";
 
-  await resend.emails.send({
-    from: fromAddress,
-    to: [payload.inviteeEmail],
-    cc: [payload.hostEmail],
-    subject: `Confirmed: ${payload.eventTitle} with ${payload.hostName}`,
-    html: `
-      <div style="font-family: sans-serif; line-height: 1.6; color: #18181b; max-width: 560px;">
-        <h2 style="margin-bottom: 8px;">Your meeting is confirmed</h2>
-        <p>Hi ${payload.inviteeName},</p>
-        <p>Your <strong>${payload.eventTitle}</strong> with <strong>${payload.hostName}</strong> has been scheduled.</p>
-        <div style="background: #f4f4f5; padding: 16px; border-radius: 8px; margin: 16px 0;">
-          <p style="margin: 0 0 6px;"><strong>When:</strong> ${formattedStart} (${payload.inviteeTimezone})</p>
-          ${payload.location ? `<p style="margin: 0;"><strong>Where:</strong> ${payload.location}</p>` : ""}
+  const attachment = [
+    {
+      filename: "invite.ics",
+      content: Buffer.from(icsContent, "utf-8"),
+    },
+  ];
+
+  // Send separate emails so the host's personal login email is never exposed to public invitees
+  await Promise.allSettled([
+    resend.emails.send({
+      from: fromAddress,
+      to: [payload.inviteeEmail],
+      subject: sanitizeEmailSubject(
+        `Confirmed: ${payload.eventTitle} with ${payload.hostName}`
+      ),
+      html: `
+        <div style="font-family: Verdana, Geneva, sans-serif; line-height: 1.6; color: #2b1e17; background: #faf7f2; padding: 24px; max-width: 560px; border-radius: 10px;">
+          <h2 style="margin-bottom: 8px; color: #0e9aa7;">Your booking is confirmed</h2>
+          <p>Hi ${safeInviteeName},</p>
+          <p>Your <strong>${safeEventTitle}</strong> with <strong>${safeHostName}</strong> has been scheduled.</p>
+          <div style="background: #f2ece2; padding: 16px; border-radius: 8px; margin: 16px 0; border: 1px solid #e3d9ca;">
+            <p style="margin: 0 0 6px;"><strong>When:</strong> ${formattedStart} (${safeTimezone})</p>
+            ${safeLocation ? `<p style="margin: 0;"><strong>Where:</strong> ${safeLocation}</p>` : ""}
+          </div>
+          <p>
+            <a href="${confirmUrl}" style="color: #0e9aa7;">View booking details</a> ·
+            <a href="${cancelUrl}" style="color: #0e9aa7;">Cancel meeting</a>
+          </p>
         </div>
-        <p>
-          <a href="${confirmUrl}">View booking details</a> ·
-          <a href="${cancelUrl}">Cancel meeting</a>
-        </p>
-      </div>
-    `,
-    attachments: [
-      {
-        filename: "invite.ics",
-        content: Buffer.from(icsContent, "utf-8"),
-      },
-    ],
-  });
+      `,
+      attachments: attachment,
+    }),
+    resend.emails.send({
+      from: fromAddress,
+      to: [payload.hostEmail],
+      subject: sanitizeEmailSubject(
+        `New Booking: ${payload.eventTitle} — ${payload.inviteeName}`
+      ),
+      html: `
+        <div style="font-family: Verdana, Geneva, sans-serif; line-height: 1.6; color: #2b1e17; background: #faf7f2; padding: 24px; max-width: 560px; border-radius: 10px;">
+          <h2 style="margin-bottom: 8px; color: #0e9aa7;">New booking received</h2>
+          <p><strong>${safeInviteeName}</strong> (${safeInviteeEmail}) booked <strong>${safeEventTitle}</strong>.</p>
+          <div style="background: #f2ece2; padding: 16px; border-radius: 8px; margin: 16px 0; border: 1px solid #e3d9ca;">
+            <p style="margin: 0 0 6px;"><strong>When:</strong> ${formattedStart} (${safeTimezone})</p>
+            ${safeLocation ? `<p style="margin: 0;"><strong>Where:</strong> ${safeLocation}</p>` : ""}
+          </div>
+        </div>
+      `,
+      attachments: attachment,
+    }),
+  ]);
 }
 
 export async function sendBookingCancellationEmail(params: {
@@ -175,24 +211,44 @@ export async function sendBookingCancellationEmail(params: {
   }
 
   const resend = new Resend(apiKey);
-  const formattedStart = formatInTimezone(
+  const rawFormattedStart = formatInTimezone(
     params.startTime,
     params.inviteeTimezone
   );
+  const formattedStart = escapeHtml(rawFormattedStart);
+  const safeEventTitle = escapeHtml(params.eventTitle);
+  const safeHostName = escapeHtml(params.hostName);
+  const safeInviteeName = escapeHtml(params.inviteeName);
+  const safeTimezone = escapeHtml(params.inviteeTimezone);
+  const safeReason = params.reason ? escapeHtml(params.reason) : null;
+
   const fromAddress =
-    process.env.RESEND_FROM_EMAIL ?? "CalClone <onboarding@resend.dev>";
+    process.env.RESEND_FROM_EMAIL ?? "Isked <onboarding@resend.dev>";
 
-  await resend.emails.send({
-    from: fromAddress,
-    to: [params.inviteeEmail, params.hostEmail],
-    subject: `Cancelled: ${params.eventTitle} (${formattedStart})`,
-    html: `
-      <div style="font-family: sans-serif; line-height: 1.6; color: #18181b; max-width: 560px;">
-        <h2>Meeting Cancelled</h2>
-        <p>The scheduled <strong>${params.eventTitle}</strong> between <strong>${params.hostName}</strong> and <strong>${params.inviteeName}</strong> on ${formattedStart} (${params.inviteeTimezone}) has been cancelled.</p>
-        ${params.reason ? `<p><strong>Reason:</strong> ${params.reason}</p>` : ""}
-      </div>
-    `,
-  });
+  const htmlBody = `
+    <div style="font-family: Verdana, Geneva, sans-serif; line-height: 1.6; color: #2b1e17; background: #faf7f2; padding: 24px; max-width: 560px; border-radius: 10px;">
+      <h2 style="color: #2b1e17;">Meeting Cancelled</h2>
+      <p>The scheduled <strong>${safeEventTitle}</strong> between <strong>${safeHostName}</strong> and <strong>${safeInviteeName}</strong> on ${formattedStart} (${safeTimezone}) has been cancelled.</p>
+      ${safeReason ? `<p><strong>Reason:</strong> ${safeReason}</p>` : ""}
+    </div>
+  `;
+
+  await Promise.allSettled([
+    resend.emails.send({
+      from: fromAddress,
+      to: [params.inviteeEmail],
+      subject: sanitizeEmailSubject(
+        `Cancelled: ${params.eventTitle} (${rawFormattedStart})`
+      ),
+      html: htmlBody,
+    }),
+    resend.emails.send({
+      from: fromAddress,
+      to: [params.hostEmail],
+      subject: sanitizeEmailSubject(
+        `Cancelled: ${params.eventTitle} — ${params.inviteeName}`
+      ),
+      html: htmlBody,
+    }),
+  ]);
 }
-

@@ -34,6 +34,9 @@ yarn-error.log*
 .env*
 !.env.example
 
+# local AI session logs (keep locally, never push)
+/.second brain/
+
 # vercel
 .vercel
 

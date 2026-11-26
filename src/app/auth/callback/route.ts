@@ -7,7 +7,9 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   const nextParam = searchParams.get("next") ?? "/dashboard/event-types";
   const next =
-    nextParam.startsWith("/") && !nextParam.startsWith("//")
+    nextParam.startsWith("/") &&
+    !nextParam.startsWith("//") &&
+    !nextParam.startsWith("/\\")
       ? nextParam
       : "/dashboard/event-types";
 
@@ -23,4 +25,3 @@ export async function GET(request: Request) {
 
   return NextResponse.redirect(`${origin}/login?error=auth_callback_failed`);
 }
-

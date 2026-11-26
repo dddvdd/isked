@@ -1,8 +1,11 @@
+import { Suspense } from "react";
+import { connection } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { AvailabilityEditorClient } from "@/components/availability/AvailabilityEditorClient";
 
-export default async function AvailabilityPage() {
+async function AvailabilityContent() {
+  await connection();
   const user = await requireCurrentUser();
 
   const [availabilities, dateOverrides] = await Promise.all([
@@ -35,3 +38,20 @@ export default async function AvailabilityPage() {
   );
 }
 
+function AvailabilityFallback() {
+  return (
+    <div className="mx-auto max-w-4xl space-y-6">
+      <div className="h-8 w-40 animate-pulse rounded bg-muted" />
+      <div className="h-28 animate-pulse rounded-xl border bg-card" />
+      <div className="h-80 animate-pulse rounded-xl border bg-card" />
+    </div>
+  );
+}
+
+export default function AvailabilityPage() {
+  return (
+    <Suspense fallback={<AvailabilityFallback />}>
+      <AvailabilityContent />
+    </Suspense>
+  );
+}

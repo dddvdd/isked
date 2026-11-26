@@ -4,6 +4,8 @@ import Link from "next/link";
 import { Clock, Loader2, MapPin } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MascotWalkway } from "@/components/landing/MascotWalkway";
+import { SiteFooter } from "@/components/landing/SiteFooter";
 
 async function HostPublicProfileContent({
   params,
@@ -83,16 +85,21 @@ export default function HostPublicProfilePage({
   params: Promise<{ username: string }>;
 }) {
   return (
-    <div className="min-h-screen bg-zinc-50 px-4 py-14 dark:bg-zinc-950">
-      <Suspense
-        fallback={
-          <div className="flex items-center justify-center py-24">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        }
-      >
-        <HostPublicProfileContent params={params} />
-      </Suspense>
+    <div className="flex min-h-screen flex-col bg-background">
+      <main className="flex-1 px-4 pt-14 pb-6">
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center py-24">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          }
+        >
+          <HostPublicProfileContent params={params} />
+        </Suspense>
+      </main>
+
+      <MascotWalkway />
+      <SiteFooter />
     </div>
   );
 }

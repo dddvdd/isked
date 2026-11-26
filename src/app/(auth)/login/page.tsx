@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Calendar, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  signInWithPasswordAction,
+  signUpWithPasswordAction,
+} from "@/actions/auth";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -35,35 +39,25 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const supabase = createClient();
-
       if (mode === "signin") {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (signInError) {
-          setError(signInError.message);
+        const res = await signInWithPasswordAction({ email, password });
+        if (!res.ok) {
+          setError(res.error);
           return;
         }
         router.push("/dashboard/event-types");
         router.refresh();
       } else {
-        const { data, error: signUpError } = await supabase.auth.signUp({
+        const res = await signUpWithPasswordAction({
           email,
           password,
-          options: {
-            data: {
-              full_name: fullName.trim() || undefined,
-            },
-            emailRedirectTo: `${window.location.origin}/auth/callback`,
-          },
+          fullName,
         });
-        if (signUpError) {
-          setError(signUpError.message);
+        if (!res.ok) {
+          setError(res.error);
           return;
         }
-        if (data.session) {
+        if (res.hasSession) {
           router.push("/dashboard/event-types");
           router.refresh();
         } else {
@@ -72,10 +66,8 @@ export default function LoginPage() {
           );
         }
       }
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Authentication request failed."
-      );
+    } catch {
+      setError("Authentication request failed. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -93,25 +85,23 @@ export default function LoginPage() {
         },
       });
       if (oauthError) {
-        setError(oauthError.message);
+        setError("Google sign-in could not be started.");
         setOauthLoading(false);
       }
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Google sign-in failed."
-      );
+    } catch {
+      setError("Google sign-in failed.");
       setOauthLoading(false);
     }
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-zinc-50 px-4 py-12 dark:bg-zinc-950">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 py-12">
       <Link
         href="/"
         className="mb-6 flex items-center gap-2 text-xl font-semibold tracking-tight"
       >
         <Calendar className="h-6 w-6 text-primary" />
-        <span>CalClone</span>
+        <span className="font-brand">Isked</span>
       </Link>
 
       <Card className="w-full max-w-md">
@@ -158,7 +148,8 @@ export default function LoginPage() {
                 <Input
                   id="fullName"
                   type="text"
-                  placeholder="Alex Rivera"
+                  autoComplete="name"
+                  placeholder="Juan Dela Cruz"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                 />
@@ -170,6 +161,7 @@ export default function LoginPage() {
               <Input
                 id="email"
                 type="email"
+                autoComplete="email"
                 placeholder="you@example.com"
                 required
                 value={email}
@@ -182,12 +174,20 @@ export default function LoginPage() {
               <Input
                 id="password"
                 type="password"
+                autoComplete={
+                  mode === "signin" ? "current-password" : "new-password"
+                }
                 placeholder="••••••••"
                 required
-                minLength={6}
+                minLength={mode === "signup" ? 8 : 6}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
+              {mode === "signup" && (
+                <p className="text-[11px] text-muted-foreground">
+                  Minimum 8 characters with uppercase, lowercase, and a number.
+                </p>
+              )}
             </div>
 
             {error && (
@@ -197,7 +197,7 @@ export default function LoginPage() {
             )}
 
             {message && (
-              <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+              <p className="rounded-md bg-accent px-3 py-2 text-sm text-accent-foreground">
                 {message}
               </p>
             )}
@@ -209,7 +209,7 @@ export default function LoginPage() {
           </form>
         </CardContent>
 
-        <CardFooter className="justify-center">
+        <CardFooter className="flex-col gap-3">
           <button
             type="button"
             onClick={() => {
@@ -223,9 +223,20 @@ export default function LoginPage() {
               ? "Don't have an account? Sign up"
               : "Already have an account? Sign in"}
           </button>
+
+          <p className="text-center text-[11px] text-muted-foreground">
+            By continuing, you agree to our{" "}
+            <Link href="/terms" className="underline hover:text-foreground">
+              Terms of Use
+            </Link>{" "}
+            and{" "}
+            <Link href="/privacy" className="underline hover:text-foreground">
+              Data Privacy Notice
+            </Link>
+            .
+          </p>
         </CardFooter>
       </Card>
     </div>
   );
 }
-

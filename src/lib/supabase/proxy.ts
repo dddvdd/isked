@@ -1,7 +1,19 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { hardenCookieOptions } from "@/lib/supabase/cookie-options";
 
 export async function updateSession(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const lowerPath = pathname.toLowerCase();
+  if (
+    lowerPath === "/.env" ||
+    lowerPath.startsWith("/.env.") ||
+    lowerPath === "/.git" ||
+    lowerPath.startsWith("/.git/")
+  ) {
+    return new NextResponse("Not Found", { status: 404 });
+  }
+
   let supabaseResponse = NextResponse.next({
     request,
   });
@@ -26,7 +38,7 @@ export async function updateSession(request: NextRequest) {
           request,
         });
         cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, options)
+          supabaseResponse.cookies.set(name, value, hardenCookieOptions(options))
         );
       },
     },
@@ -35,17 +47,16 @@ export async function updateSession(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const isVerifiedUser = Boolean(user?.email_confirmed_at);
 
-  const { pathname } = request.nextUrl;
-
-  if (!user && pathname.startsWith("/dashboard")) {
+  if (!isVerifiedUser && pathname.startsWith("/dashboard")) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
 
-  if (user && pathname === "/login") {
+  if (isVerifiedUser && pathname === "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard/event-types";
     return NextResponse.redirect(url);

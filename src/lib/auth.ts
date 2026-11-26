@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -12,6 +13,8 @@ const RESERVED_USERNAMES = new Set([
   "api",
   "settings",
   "admin",
+  "privacy",
+  "terms",
 ]);
 
 function sanitizeUsernameBase(email: string): string {
@@ -28,6 +31,16 @@ function sanitizeUsernameBase(email: string): string {
   return cleaned;
 }
 
+function sanitizeAvatarUrl(raw: unknown): string | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = new URL(raw.trim());
+    return parsed.protocol === "https:" ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 async function generateUniqueUsername(email: string): Promise<string> {
   const base = sanitizeUsernameBase(email);
 
@@ -41,7 +54,7 @@ async function generateUniqueUsername(email: string): Promise<string> {
   }
 
   for (let attempt = 0; attempt < 5; attempt++) {
-    const suffix = Math.random().toString(36).slice(2, 6);
+    const suffix = randomBytes(3).toString("hex");
     const candidate = `${base}-${suffix}`;
     const taken = await prisma.user.findUnique({
       where: { username: candidate },
@@ -52,7 +65,7 @@ async function generateUniqueUsername(email: string): Promise<string> {
     }
   }
 
-  return `${base}-${Date.now().toString(36)}`;
+  return `${base}-${randomBytes(5).toString("hex")}`;
 }
 
 /**
@@ -72,21 +85,22 @@ export async function ensureUserOnboarded(authUser: SupabaseUser) {
     return existingById;
   }
 
-  const existingByEmail = await prisma.user.findUnique({
-    where: { email: authUser.email },
-  });
-
-  if (existingByEmail) {
-    return existingByEmail;
+  const isEmailVerified = Boolean(authUser.email_confirmed_at);
+  if (isEmailVerified) {
+    const existingByEmail = await prisma.user.findUnique({
+      where: { email: authUser.email },
+    });
+    if (existingByEmail) {
+      return existingByEmail;
+    }
   }
 
   const username = await generateUniqueUsername(authUser.email);
   const fullName =
-    (authUser.user_metadata?.full_name as string | undefined) ??
-    (authUser.user_metadata?.name as string | undefined) ??
+    (authUser.user_metadata?.full_name as string | undefined)?.slice(0, 120) ??
+    (authUser.user_metadata?.name as string | undefined)?.slice(0, 120) ??
     null;
-  const avatarUrl =
-    (authUser.user_metadata?.avatar_url as string | undefined) ?? null;
+  const avatarUrl = sanitizeAvatarUrl(authUser.user_metadata?.avatar_url);
 
   const weekdayAvailability = [1, 2, 3, 4, 5].map((dayOfWeek) => ({
     dayOfWeek,
@@ -129,6 +143,12 @@ export async function getCurrentUser() {
     return null;
   }
 
+  // Defense-in-depth: never treat an unverified email/password account as signed in,
+  // even if Supabase email confirmation were ever switched off.
+  if (!user.email_confirmed_at) {
+    return null;
+  }
+
   return ensureUserOnboarded(user);
 }
 
@@ -142,4 +162,3 @@ export async function requireCurrentUser() {
   }
   return user;
 }
-

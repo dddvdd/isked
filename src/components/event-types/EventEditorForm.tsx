@@ -6,11 +6,16 @@ import Link from "next/link";
 import { ArrowLeft, Check, ExternalLink, Loader2 } from "lucide-react";
 import {
   slugify,
+  type BookingWindowType,
   type CustomQuestion,
   type EventTypeInput,
+  type LocationDistribution,
+  type SlotLimitScope,
 } from "@/lib/validations/event-type";
 import { updateEventTypeAction } from "@/actions/event-types";
 import { CustomQuestionBuilder } from "@/components/event-types/CustomQuestionBuilder";
+import { BookingDatesSelector } from "@/components/event-types/BookingDatesSelector";
+import { SlotAllocationSelector } from "@/components/event-types/SlotAllocationSelector";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Card,
@@ -63,9 +68,33 @@ export function EventEditorForm({
   );
   const [location, setLocation] = useState(initialValues.location ?? "");
   const [isActive, setIsActive] = useState(initialValues.isActive);
+  const [showAdditionalNotes, setShowAdditionalNotes] = useState(
+    initialValues.showAdditionalNotes ?? true
+  );
   const [customQuestions, setCustomQuestions] = useState<CustomQuestion[]>(
     initialValues.customQuestions
   );
+  const [bookingWindowType, setBookingWindowType] =
+    useState<BookingWindowType>(initialValues.bookingWindowType ?? "UNLIMITED");
+  const [bookingStartDate, setBookingStartDate] = useState(
+    initialValues.bookingStartDate ?? ""
+  );
+  const [bookingEndDate, setBookingEndDate] = useState(
+    initialValues.bookingEndDate ?? ""
+  );
+  const [allowedDates, setAllowedDates] = useState<string[]>(
+    initialValues.allowedDates ?? []
+  );
+  const [slotLimitScope, setSlotLimitScope] = useState<SlotLimitScope>(
+    initialValues.slotLimitScope ?? "NONE"
+  );
+  const [slotLimit, setSlotLimit] = useState<number | null>(
+    initialValues.slotLimit ?? null
+  );
+  const [locationDistribution, setLocationDistribution] =
+    useState<LocationDistribution>(
+      initialValues.locationDistribution ?? { level: "NONE", allocations: [] }
+    );
   const [postBookingBehavior, setPostBookingBehavior] = useState<
     "CONFIRMATION_PAGE" | "REDIRECT"
   >(initialValues.postBookingBehavior);
@@ -91,7 +120,21 @@ export function EventEditorForm({
         bufferAfterMinutes,
         location,
         isActive,
+        showAdditionalNotes,
         customQuestions,
+        bookingWindowType,
+        bookingStartDate:
+          bookingWindowType === "DATE_RANGE" ? bookingStartDate : null,
+        bookingEndDate:
+          bookingWindowType === "DATE_RANGE" ? bookingEndDate : null,
+        allowedDates:
+          bookingWindowType === "SPECIFIC_DATES" ? allowedDates : [],
+        slotLimitScope,
+        slotLimit: slotLimitScope === "NONE" ? null : slotLimit,
+        locationDistribution:
+          slotLimitScope === "NONE"
+            ? { level: "NONE", allocations: [] }
+            : locationDistribution,
         postBookingBehavior,
         redirectUrl: postBookingBehavior === "REDIRECT" ? redirectUrl : null,
       });
@@ -241,7 +284,68 @@ export function EventEditorForm({
 
       <Card>
         <CardHeader>
-          <CardTitle>Duration & Buffers</CardTitle>
+          <CardTitle>Open Booking Dates</CardTitle>
+          <CardDescription>
+            Limit when invitees can schedule this event by choosing a date range or specific open dates.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <BookingDatesSelector
+            bookingWindowType={bookingWindowType}
+            bookingStartDate={bookingStartDate}
+            bookingEndDate={bookingEndDate}
+            allowedDates={allowedDates}
+            onChangeType={(t) => {
+              setBookingWindowType(t);
+              setSaved(false);
+            }}
+            onChangeStartDate={(d) => {
+              setBookingStartDate(d);
+              setSaved(false);
+            }}
+            onChangeEndDate={(d) => {
+              setBookingEndDate(d);
+              setSaved(false);
+            }}
+            onChangeAllowedDates={(dates) => {
+              setAllowedDates(dates);
+              setSaved(false);
+            }}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Event Slots &amp; Location Distribution</CardTitle>
+          <CardDescription>
+            Set maximum slots for the entire event or per day, and optionally distribute quotas across PSGC Provinces, Municipalities / Cities, or Barangays.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <SlotAllocationSelector
+            slotLimitScope={slotLimitScope}
+            slotLimit={slotLimit}
+            locationDistribution={locationDistribution}
+            onChangeScope={(s) => {
+              setSlotLimitScope(s);
+              setSaved(false);
+            }}
+            onChangeSlotLimit={(n) => {
+              setSlotLimit(n);
+              setSaved(false);
+            }}
+            onChangeDistribution={(d) => {
+              setLocationDistribution(d);
+              setSaved(false);
+            }}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Duration &amp; Buffers</CardTitle>
           <CardDescription>
             Control slot length and padding before/after meetings to prevent back-to-back fatigue.
           </CardDescription>
@@ -312,10 +416,32 @@ export function EventEditorForm({
         <CardHeader>
           <CardTitle>Invitee Booking Form</CardTitle>
           <CardDescription>
-            Customize additional questions invitees answer before confirming.
+            Configure default fields and add custom questions invitees answer before confirming.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/50 p-4">
+            <div className="space-y-0.5">
+              <Label
+                htmlFor="toggle-additional-notes"
+                className="text-sm font-medium"
+              >
+                Show Additional Notes field
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Allow invitees to write optional additional notes when submitting a booking.
+              </p>
+            </div>
+            <Switch
+              id="toggle-additional-notes"
+              checked={showAdditionalNotes}
+              onCheckedChange={(c) => {
+                setShowAdditionalNotes(Boolean(c));
+                setSaved(false);
+              }}
+            />
+          </div>
+
           <CustomQuestionBuilder
             questions={customQuestions}
             onChange={setCustomQuestions}
@@ -388,4 +514,3 @@ export function EventEditorForm({
     </form>
   );
 }
-

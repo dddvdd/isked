@@ -44,6 +44,7 @@ export async function createEventTypeAction(input: {
     bufferBeforeMinutes: 0,
     bufferAfterMinutes: 0,
     isActive: true,
+    showAdditionalNotes: true,
     customQuestions: [],
     postBookingBehavior: "CONFIRMATION_PAGE",
     redirectUrl: null,
@@ -56,25 +57,54 @@ export async function createEventTypeAction(input: {
     };
   }
 
-  const created = await prisma.eventType.create({
-    data: {
-      userId: user.id,
-      title: parsed.data.title,
-      slug: parsed.data.slug,
-      description: parsed.data.description || null,
-      durationMinutes: parsed.data.durationMinutes,
-      bufferBeforeMinutes: parsed.data.bufferBeforeMinutes,
-      bufferAfterMinutes: parsed.data.bufferAfterMinutes,
-      location: parsed.data.location || null,
-      isActive: parsed.data.isActive,
-      customQuestions: parsed.data.customQuestions as Prisma.InputJsonValue,
-      postBookingBehavior: parsed.data.postBookingBehavior,
-      redirectUrl: null,
-    },
-  });
+  try {
+    const created = await prisma.eventType.create({
+      data: {
+        userId: user.id,
+        title: parsed.data.title,
+        slug: parsed.data.slug,
+        description: parsed.data.description || null,
+        durationMinutes: parsed.data.durationMinutes,
+        bufferBeforeMinutes: parsed.data.bufferBeforeMinutes,
+        bufferAfterMinutes: parsed.data.bufferAfterMinutes,
+        location: parsed.data.location || null,
+        isActive: parsed.data.isActive,
+        showAdditionalNotes: parsed.data.showAdditionalNotes,
+        customQuestions: parsed.data.customQuestions as Prisma.InputJsonValue,
+        bookingWindowType: parsed.data.bookingWindowType,
+        bookingStartDate:
+          parsed.data.bookingWindowType === "DATE_RANGE" &&
+          parsed.data.bookingStartDate
+            ? new Date(`${parsed.data.bookingStartDate}T00:00:00.000Z`)
+            : null,
+        bookingEndDate:
+          parsed.data.bookingWindowType === "DATE_RANGE" &&
+          parsed.data.bookingEndDate
+            ? new Date(`${parsed.data.bookingEndDate}T00:00:00.000Z`)
+            : null,
+        allowedDates: (parsed.data.bookingWindowType === "SPECIFIC_DATES"
+          ? Array.from(new Set(parsed.data.allowedDates)).sort()
+          : []) as Prisma.InputJsonValue,
+        slotLimitScope: parsed.data.slotLimitScope,
+        slotLimit:
+          parsed.data.slotLimitScope === "NONE"
+            ? null
+            : (parsed.data.slotLimit ?? null),
+        locationDistribution: (parsed.data.slotLimitScope === "NONE" ||
+        parsed.data.locationDistribution.level === "NONE"
+          ? { level: "NONE", allocations: [] }
+          : parsed.data.locationDistribution) as Prisma.InputJsonValue,
+        postBookingBehavior: parsed.data.postBookingBehavior,
+        redirectUrl: null,
+      },
+    });
 
-  revalidatePath("/dashboard/event-types");
-  return { ok: true as const, id: created.id };
+    revalidatePath("/dashboard/event-types");
+    return { ok: true as const, id: created.id };
+  } catch (err) {
+    console.error("Failed to create event type:", err);
+    return { ok: false as const, error: "Could not create event type." };
+  }
 }
 
 export async function updateEventTypeAction(
@@ -115,31 +145,60 @@ export async function updateEventTypeAction(
     };
   }
 
-  await prisma.eventType.update({
-    where: { id },
-    data: {
-      title: parsed.data.title,
-      slug: parsed.data.slug,
-      description: parsed.data.description?.trim() || null,
-      durationMinutes: parsed.data.durationMinutes,
-      bufferBeforeMinutes: parsed.data.bufferBeforeMinutes,
-      bufferAfterMinutes: parsed.data.bufferAfterMinutes,
-      location: parsed.data.location?.trim() || null,
-      isActive: parsed.data.isActive,
-      customQuestions: parsed.data.customQuestions as Prisma.InputJsonValue,
-      postBookingBehavior: parsed.data.postBookingBehavior,
-      redirectUrl:
-        parsed.data.postBookingBehavior === "REDIRECT"
-          ? parsed.data.redirectUrl?.trim() || null
-          : null,
-    },
-  });
+  try {
+    await prisma.eventType.update({
+      where: { id },
+      data: {
+        title: parsed.data.title,
+        slug: parsed.data.slug,
+        description: parsed.data.description?.trim() || null,
+        durationMinutes: parsed.data.durationMinutes,
+        bufferBeforeMinutes: parsed.data.bufferBeforeMinutes,
+        bufferAfterMinutes: parsed.data.bufferAfterMinutes,
+        location: parsed.data.location?.trim() || null,
+        isActive: parsed.data.isActive,
+        showAdditionalNotes: parsed.data.showAdditionalNotes,
+        customQuestions: parsed.data.customQuestions as Prisma.InputJsonValue,
+        bookingWindowType: parsed.data.bookingWindowType,
+        bookingStartDate:
+          parsed.data.bookingWindowType === "DATE_RANGE" &&
+          parsed.data.bookingStartDate
+            ? new Date(`${parsed.data.bookingStartDate}T00:00:00.000Z`)
+            : null,
+        bookingEndDate:
+          parsed.data.bookingWindowType === "DATE_RANGE" &&
+          parsed.data.bookingEndDate
+            ? new Date(`${parsed.data.bookingEndDate}T00:00:00.000Z`)
+            : null,
+        allowedDates: (parsed.data.bookingWindowType === "SPECIFIC_DATES"
+          ? Array.from(new Set(parsed.data.allowedDates)).sort()
+          : []) as Prisma.InputJsonValue,
+        slotLimitScope: parsed.data.slotLimitScope,
+        slotLimit:
+          parsed.data.slotLimitScope === "NONE"
+            ? null
+            : (parsed.data.slotLimit ?? null),
+        locationDistribution: (parsed.data.slotLimitScope === "NONE" ||
+        parsed.data.locationDistribution.level === "NONE"
+          ? { level: "NONE", allocations: [] }
+          : parsed.data.locationDistribution) as Prisma.InputJsonValue,
+        postBookingBehavior: parsed.data.postBookingBehavior,
+        redirectUrl:
+          parsed.data.postBookingBehavior === "REDIRECT"
+            ? parsed.data.redirectUrl?.trim() || null
+            : null,
+      },
+    });
 
-  revalidatePath("/dashboard/event-types");
-  revalidatePath(`/dashboard/event-types/${id}`);
-  revalidatePath(`/${user.username}/${parsed.data.slug}`);
+    revalidatePath("/dashboard/event-types");
+    revalidatePath(`/dashboard/event-types/${id}`);
+    revalidatePath(`/${user.username}/${parsed.data.slug}`);
 
-  return { ok: true as const };
+    return { ok: true as const };
+  } catch (err) {
+    console.error("Failed to update event type:", err);
+    return { ok: false as const, error: "Could not save event type changes." };
+  }
 }
 
 export async function toggleEventTypeActiveAction(

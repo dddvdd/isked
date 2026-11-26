@@ -28,6 +28,18 @@ enum PostBookingBehavior {
   REDIRECT
 }
 
+enum BookingWindowType {
+  UNLIMITED
+  DATE_RANGE
+  SPECIFIC_DATES
+}
+
+enum SlotLimitScope {
+  NONE
+  PER_EVENT
+  PER_DAY
+}
+
 model EventType {
   id                  String              @id @default(uuid())
   userId              String
@@ -40,8 +52,16 @@ model EventType {
   bufferAfterMinutes  Int                 @default(0)
   location            String?
   isActive            Boolean             @default(true)
+  showAdditionalNotes Boolean             @default(true)
   customQuestions     Json                @default("[]") // Array<{ id, label, type, required, options? }>
-  postBookingBehavior PostBookingBehavior @default(CONFIRMATION_PAGE)
+  bookingWindowType   BookingWindowType   @default(UNLIMITED)
+  bookingStartDate     DateTime?           @db.Date
+  bookingEndDate       DateTime?           @db.Date
+  allowedDates         Json                @default("[]") // Array<"YYYY-MM-DD"> in host timezone
+  slotLimitScope       SlotLimitScope      @default(NONE)
+  slotLimit            Int?
+  locationDistribution Json                @default("{}") // { level: "NONE"|"PROVINCE"|"MUNICIPALITY"|"BARANGAY", allocations: [...] }
+  postBookingBehavior  PostBookingBehavior @default(CONFIRMATION_PAGE)
   redirectUrl         String?
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
@@ -98,6 +118,16 @@ model Booking {
   updatedAt          DateTime      @updatedAt
 
   @@index([hostId, startTime, endTime])
+}
+
+// Persistent fixed-window rate-limit counters shared across all server instances.
+// `key` = "<namespace>:<sha256(identifier)>:<windowIndex>" (raw IPs/emails are never stored).
+model RateLimit {
+  key       String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+
+  @@index([expiresAt])
 }
 
 model PageView {

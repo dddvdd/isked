@@ -13,6 +13,7 @@ import {
   Pencil,
   Plus,
   Trash2,
+  Users,
 } from "lucide-react";
 import {
   createEventTypeAction,
@@ -43,6 +44,9 @@ interface EventTypeItem {
   location: string | null;
   isActive: boolean;
   bookingsCount: number;
+  slotLimitScope?: "NONE" | "PER_EVENT" | "PER_DAY";
+  slotLimit?: number | null;
+  locationLevel?: "NONE" | "PROVINCE" | "MUNICIPALITY" | "BARANGAY";
 }
 
 export function EventTypeListClient({
@@ -256,6 +260,24 @@ export function EventTypeListClient({
                     </span>
                   )}
                   <span>{item.bookingsCount} bookings</span>
+                  {item.slotLimitScope &&
+                    item.slotLimitScope !== "NONE" &&
+                    item.slotLimit && (
+                      <span className="inline-flex items-center gap-1 text-foreground font-medium">
+                        <Users className="h-3.5 w-3.5 text-primary" />
+                        {item.slotLimit} slots /{" "}
+                        {item.slotLimitScope === "PER_DAY" ? "day" : "event"}
+                        {item.locationLevel && item.locationLevel !== "NONE"
+                          ? ` · Per ${
+                              item.locationLevel === "PROVINCE"
+                                ? "Province"
+                                : item.locationLevel === "MUNICIPALITY"
+                                  ? "Municipality"
+                                  : "Barangay"
+                            }`
+                          : ""}
+                      </span>
+                    )}
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">

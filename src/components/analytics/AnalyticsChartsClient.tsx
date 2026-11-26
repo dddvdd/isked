@@ -67,13 +67,13 @@ export function AnalyticsChartsClient({
                   <Bar
                     dataKey="views"
                     name="Page Views"
-                    fill="#a1a1aa"
+                    fill="#c4b39e"
                     radius={[4, 4, 0, 0]}
                   />
                   <Bar
                     dataKey="bookings"
                     name="Confirmed Bookings"
-                    fill="#18181b"
+                    fill="#0e9aa7"
                     radius={[4, 4, 0, 0]}
                   />
                 </BarChart>
@@ -101,7 +101,7 @@ export function AnalyticsChartsClient({
                 <Bar
                   dataKey="bookings"
                   name="Bookings"
-                  fill="#2563eb"
+                  fill="#0e9aa7"
                   radius={[4, 4, 0, 0]}
                 />
               </BarChart>
@@ -128,7 +128,7 @@ export function AnalyticsChartsClient({
                 <Bar
                   dataKey="bookings"
                   name="Bookings"
-                  fill="#10b981"
+                  fill="#3b2920"
                   radius={[4, 4, 0, 0]}
                 />
               </BarChart>

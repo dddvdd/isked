@@ -1,7 +1,9 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { Clock, Loader2, User } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { maskEmail } from "@/lib/security";
 import { CancelBookingClient } from "@/components/booking/CancelBookingClient";
 import {
   Card,
@@ -10,6 +12,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+
+export const metadata: Metadata = {
+  title: "Cancel Booking — Isked",
+  robots: { index: false, follow: false },
+};
 
 async function CancelBookingContent({
   params,
@@ -52,12 +59,10 @@ async function CancelBookingContent({
       </CardHeader>
 
       <CardContent className="space-y-6">
-        <div className="space-y-2 rounded-xl border bg-zinc-50/70 p-4 text-sm dark:bg-zinc-900/50">
+        <div className="space-y-2 rounded-xl border bg-muted/50 p-4 text-sm">
           <div className="flex items-center gap-2 text-muted-foreground">
             <User className="h-4 w-4 shrink-0" />
-            <span>
-              {hostName} &amp; {booking.inviteeName}
-            </span>
+            <span>Host: {hostName}</span>
           </div>
           <div className="flex items-center gap-2 text-muted-foreground">
             <Clock className="h-4 w-4 shrink-0" />
@@ -69,6 +74,7 @@ async function CancelBookingContent({
 
         <CancelBookingClient
           uid={booking.uid}
+          maskedEmail={maskEmail(booking.inviteeEmail)}
           alreadyCancelled={booking.status === "CANCELLED"}
           rebookHref={`/${booking.host.username}/${booking.eventType.slug}`}
         />
@@ -83,7 +89,7 @@ export default function CancelBookingPage({
   params: Promise<{ uid: string }>;
 }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4 py-12 dark:bg-zinc-950">
+    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
       <Suspense
         fallback={
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />

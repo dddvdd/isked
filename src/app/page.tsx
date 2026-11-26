@@ -1,16 +1,18 @@
 import Link from "next/link";
 import { Calendar, Clock, Globe, BarChart3 } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
+import { MascotWalkway } from "@/components/landing/MascotWalkway";
+import { SiteFooter } from "@/components/landing/SiteFooter";
 import { cn } from "@/lib/utils";
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen flex-col bg-zinc-50 dark:bg-zinc-950">
-      <header className="border-b bg-background">
+    <div className="flex min-h-screen flex-col bg-background">
+      <header className="border-b bg-card">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-6">
           <div className="flex items-center gap-2 font-semibold tracking-tight">
             <Calendar className="h-5 w-5 text-primary" />
-            <span>CalClone</span>
+            <span className="font-brand">Isked</span>
           </div>
           <div className="flex items-center gap-3">
             <Link
@@ -26,7 +28,7 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="mx-auto flex flex-1 max-w-5xl flex-col justify-center px-6 py-20">
+      <main className="mx-auto flex flex-1 max-w-5xl flex-col justify-center px-6 pt-20 pb-8">
         <div className="max-w-2xl space-y-6">
           <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
             Scheduling without the back-and-forth.
@@ -73,6 +75,10 @@ export default function Home() {
           </div>
         </div>
       </main>
+
+      <MascotWalkway />
+
+      <SiteFooter />
     </div>
   );
 }
